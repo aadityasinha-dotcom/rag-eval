@@ -1,0 +1,8 @@
+# Offline smoke config: deterministic hash embeddings, no API key or network.
+# Exercises indexing and retrieval end to end; its numbers are meaningless and
+# must never be read as a result.
+name: smoke-hash64
+chunking: fixed512
+embedding: hash64
+retrieval: dense
+top_k: 5

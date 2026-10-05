@@ -20,8 +20,8 @@ grep:             ## find chunk ids containing a phrase: make grep Q="NOWAIT"
 golden-check:     ## validate evals/golden.jsonl against current chunk ids
 	$(UV) run python -m evals.golden --check --strategy $(or $(STRATEGY),fixed512)
 
-index:            ## (step 4) ingest corpus with a chunking strategy
-	@echo "ingest/index.py not written yet (build order step 4)"; exit 1
+index:            ## ingest corpus per config: make index CONFIG=evals/configs/baseline.yaml
+	$(UV) run python -m ingest.index $(CONFIG)
 
 eval:             ## (step 7) run golden set against a config
 	@echo "evals/run.py not written yet (build order step 7)"; exit 1

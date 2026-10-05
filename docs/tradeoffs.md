@@ -60,3 +60,25 @@ lost; accepted for the baseline.
 the 17 `release-*` pages are chunked like everything else. They are poor
 retrieval targets and good distractors; exclude them from the corpus later only
 as a measured config change, not silently.
+
+## Index schema (step 4)
+
+Two tables, both keyed by strategy name so several chunkings coexist and a
+config picks one: `chunks(strategy, chunk_id, ...)` with a generated
+`tsvector` column for sparse retrieval, and `embeddings(strategy, chunk_id,
+model, ...)` with an untyped `vector` column so models of different dimension
+share one table (queries always filter by model). No ANN index for the
+baseline: an exact scan over ~16k rows costs a few milliseconds and keeps
+recall numbers free of HNSW approximation; adding one is a config change to
+measure later.
+
+Indexing is incremental. Chunk rows are rewritten only when `text_hash`
+changes, stale ids are deleted (embeddings cascade), and a vector is computed
+only when its chunk has none for that model or the hash moved. Vectors are
+also cached on disk by sha256(text), so a chunking change re-embeds only
+genuinely new text and an unchanged corpus makes zero API calls.
+
+`hash64` is a deterministic bag-of-words embedder for tests and the
+`smoke-hash64` config. It exercises the pipeline end to end without a key or
+network; its retrieval numbers are meaningless and must never land in
+results.md as if they were a variant.

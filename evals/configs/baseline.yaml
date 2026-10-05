@@ -1,0 +1,7 @@
+# The baseline (CLAUDE.md rule 3): fixed-size chunks, dense only, k=5.
+name: baseline
+chunking: fixed512
+embedding: text-embedding-3-small
+retrieval: dense
+top_k: 5
+rerank: null
