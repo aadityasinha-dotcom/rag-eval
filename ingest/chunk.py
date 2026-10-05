@@ -15,12 +15,14 @@ exists so that drift can be detected rather than silently accepted.
 CLI:
     python -m ingest.chunk --strategy fixed512 --show doc3
     python -m ingest.chunk --list
+    python -m ingest.chunk --grep "NOWAIT"        # find chunk ids containing a phrase
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import signal
 import sys
 from collections.abc import Iterable
@@ -137,6 +139,22 @@ def list_docs(strategy: ChunkStrategy, corpus: Path) -> int:
     return 0
 
 
+def grep_chunks(pattern: str, strategy: ChunkStrategy, corpus: Path, context: int = 60) -> int:
+    """Print every chunk whose text matches `pattern` (case-insensitive regex) with a snippet."""
+    rx = re.compile(pattern, re.IGNORECASE)
+    hits = 0
+    for chunk in chunk_corpus(load_corpus(corpus), strategy):
+        m = rx.search(chunk.text)
+        if not m:
+            continue
+        hits += 1
+        lo, hi = max(0, m.start() - context), min(len(chunk.text), m.end() + context)
+        snippet = " ".join(chunk.text[lo:hi].split())
+        print(f"{chunk.chunk_id}\t...{snippet}...")
+    print(f"# {hits} chunks match {pattern!r}", file=sys.stderr)
+    return 0 if hits else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m ingest.chunk", description=__doc__.splitlines()[0])
     ap.add_argument("--strategy", choices=sorted(STRATEGIES), default="fixed512")
@@ -145,12 +163,15 @@ def main(argv: list[str] | None = None) -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--show", metavar="DOC", help="print one document's chunks with ids")
     mode.add_argument("--list", action="store_true", help="list doc ids with chunk counts")
+    mode.add_argument("--grep", metavar="REGEX", help="print chunk ids whose text matches")
     args = ap.parse_args(argv)
 
     strategy = STRATEGIES[args.strategy]
     try:
         if args.list:
             return list_docs(strategy, args.corpus)
+        if args.grep:
+            return grep_chunks(args.grep, strategy, args.corpus)
         return show_doc(args.show, strategy, args.corpus, args.ids_only)
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)

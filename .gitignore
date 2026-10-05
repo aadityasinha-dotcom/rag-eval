@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
 # Fetched corpus. Delete these two lines if you decide to check the corpus in.
 corpus/*
 !corpus/.gitkeep

@@ -16,9 +16,11 @@ the PostgreSQL pages are DocBook output (`<div class="sect1">`), contain no
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +31,9 @@ from llama_index.core import SimpleDirectoryReader  # noqa: E402
 from llama_index.core.readers.base import BaseReader  # noqa: E402
 from llama_index.core.schema import Document  # noqa: E402
 
-DEFAULT_CORPUS = Path(__file__).resolve().parent.parent / "corpus"
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CORPUS = ROOT / "corpus"
+CACHE_DIR = ROOT / ".cache"
 SUPPORTED_EXTS: tuple[str, ...] = (".txt", ".md", ".html", ".htm", ".pdf")
 
 # Chrome around every DocBook page: "Prev | Up | Next" tables. Not content.
@@ -135,11 +139,29 @@ def _to_parsed(by_path: dict[str, list[str]], corpus_root: Path) -> list[ParsedD
     return out
 
 
-def load_corpus(corpus_root: Path = DEFAULT_CORPUS) -> list[ParsedDoc]:
-    """Every supported file under corpus_root, one ParsedDoc each, sorted by doc id."""
-    corpus_root = corpus_root.resolve()
-    if not any(p.suffix.lower() in SUPPORTED_EXTS for p in corpus_root.rglob("*") if p.is_file()):
-        return []
+def _corpus_files(corpus_root: Path) -> list[Path]:
+    return sorted(
+        p
+        for p in corpus_root.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in SUPPORTED_EXTS
+        and not any(part.startswith(".") for part in p.relative_to(corpus_root).parts)
+    )
+
+
+def _cache_key(corpus_root: Path, files: list[Path]) -> str:
+    """Changes when any corpus file, or this parser module, changes."""
+    h = hashlib.sha256(Path(__file__).read_bytes())
+    h.update(str(corpus_root).encode())
+    for p in files:
+        st = p.stat()
+        h.update(
+            f"{p.relative_to(corpus_root).as_posix()}|{st.st_size}|{st.st_mtime_ns}\n".encode()
+        )
+    return h.hexdigest()[:16]
+
+
+def _parse_corpus(corpus_root: Path) -> list[ParsedDoc]:
     reader = SimpleDirectoryReader(
         input_dir=str(corpus_root),
         recursive=True,
@@ -148,6 +170,30 @@ def load_corpus(corpus_root: Path = DEFAULT_CORPUS) -> list[ParsedDoc]:
         file_extractor=FILE_EXTRACTOR,
     )
     return _to_parsed(_group_by_file(reader.load_data()), corpus_root)
+
+
+def load_corpus(corpus_root: Path = DEFAULT_CORPUS, cache: bool = True) -> list[ParsedDoc]:
+    """Every supported file under corpus_root, one ParsedDoc each, sorted by doc id.
+
+    Parsing 1k+ HTML pages takes ~15s, so the result is cached under .cache/
+    keyed by file sizes/mtimes and the parser source; it never serves stale text.
+    """
+    corpus_root = corpus_root.resolve()
+    files = _corpus_files(corpus_root)
+    if not files:
+        return []
+    cache_file = CACHE_DIR / f"parsed-{_cache_key(corpus_root, files)}.json"
+    if cache and cache_file.is_file():
+        rows = json.loads(cache_file.read_text(encoding="utf-8"))
+        return [ParsedDoc(r["doc_id"], Path(r["path"]), r["text"]) for r in rows]
+    docs = _parse_corpus(corpus_root)
+    if cache:
+        CACHE_DIR.mkdir(exist_ok=True)
+        rows = [{**asdict(d), "path": str(d.path)} for d in docs]
+        tmp = cache_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rows), encoding="utf-8")
+        tmp.replace(cache_file)
+    return docs
 
 
 def load_doc(doc_id: str, corpus_root: Path = DEFAULT_CORPUS) -> ParsedDoc:
