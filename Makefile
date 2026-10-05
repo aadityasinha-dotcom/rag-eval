@@ -1,4 +1,4 @@
-.PHONY: dev down fetch index eval lint test chunks grep golden-check
+.PHONY: dev down fetch index eval lint test chunks grep golden-check search
 
 UV ?= uv
 
@@ -22,6 +22,9 @@ golden-check:     ## validate evals/golden.jsonl against current chunk ids
 
 index:            ## ingest corpus per config: make index CONFIG=evals/configs/baseline.yaml
 	$(UV) run python -m ingest.index $(CONFIG)
+
+search:           ## dense top-k for a query: make search Q="lock a table" [CONFIG=...]
+	$(UV) run python -m retrieval.dense "$(Q)" --config $(or $(CONFIG),evals/configs/baseline.yaml)
 
 eval:             ## (step 7) run golden set against a config
 	@echo "evals/run.py not written yet (build order step 7)"; exit 1
