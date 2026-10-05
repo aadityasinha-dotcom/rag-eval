@@ -1,0 +1,14 @@
+# Corpus manifest, read by scripts/fetch_corpus.py.
+# One entry per line:
+#   <url> [<target dir/file relative to corpus/>] [subdir=<dir inside archive>] [sha256=<hex>]
+# Blank lines and lines starting with # are ignored.
+#
+# Archives (.zip, .tar.gz, .tgz, .tar) are extracted into corpus/<target>/
+# (or corpus/ itself if no target is given). With subdir=, only that directory
+# is extracted and its prefix removed. Anything else is saved as a file.
+
+# PostgreSQL 16 documentation, prebuilt HTML (one page per file, 1169 pages).
+# The release source tarball ships doc/src/sgml/html/ prebuilt; there is no
+# separate docs tarball. Extracted flat into corpus/ so chunk ids read
+# like "sql-createtable#c3". sha256 is the one published next to the tarball.
+https://ftp.postgresql.org/pub/source/v16.15/postgresql-16.15.tar.gz subdir=postgresql-16.15/doc/src/sgml/html sha256=4f200ca23dfb120ff9838f13ce06014aad1d3c432d16ee9f93ab2000c0eeef7b
