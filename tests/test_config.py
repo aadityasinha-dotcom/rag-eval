@@ -31,6 +31,7 @@ def test_checked_in_configs_load() -> None:
         ("name: x\nembedding: ada\n", "embedding 'ada'"),
         ("name: x\nretrieval: magic\n", "retrieval 'magic'"),
         ("name: x\ntop_k: 0\n", "top_k"),
+        ("name: x\nprompt: v9\n", "prompt 'v9'"),
         ("- a\n", "mapping"),
     ],
 )

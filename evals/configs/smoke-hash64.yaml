@@ -6,3 +6,5 @@ chunking: fixed512
 embedding: hash64
 retrieval: dense
 top_k: 5
+generation: claude-opus-5-5
+prompt: v1

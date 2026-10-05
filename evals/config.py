@@ -6,6 +6,8 @@
     retrieval: dense                # dense | sparse | hybrid (later)
     top_k: 5
     rerank: null                    # reranker name (later phase)
+    generation: claude-opus-5-5     # answer model, used only with run.py --generate
+    prompt: v1                      # key in generation.prompts.PROMPTS
 
 Unknown keys are an error so a typo cannot silently fall back to a default.
 """
@@ -31,6 +33,8 @@ class RunConfig:
     retrieval: str = "dense"
     top_k: int = 5
     rerank: str | None = None
+    generation: str = "claude-opus-5-5"
+    prompt: str = "v1"
 
 
 def load_config(path: Path) -> RunConfig:
@@ -52,4 +56,8 @@ def load_config(path: Path) -> RunConfig:
         raise ValueError(f"{path}: retrieval {cfg.retrieval!r} not in {RETRIEVALS}")
     if not isinstance(cfg.top_k, int) or cfg.top_k < 1:
         raise ValueError(f"{path}: top_k must be a positive integer")
+    from generation.prompts import PROMPTS  # local import: generation depends on retrieval
+
+    if cfg.prompt not in PROMPTS:
+        raise ValueError(f"{path}: prompt {cfg.prompt!r} not in {sorted(PROMPTS)}")
     return cfg

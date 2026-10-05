@@ -82,3 +82,25 @@ genuinely new text and an unchanged corpus makes zero API calls.
 `smoke-hash64` config. It exercises the pipeline end to end without a key or
 network; its retrieval numbers are meaningless and must never land in
 results.md as if they were a variant.
+
+## Harness and generation (step 7)
+
+`evals/run.py` is the only writer of `docs/results.md`. A row carries every
+retrieval metric it measured and a `—` for anything it did not (faithfulness
+until Ragas is wired in, $/query until llmobserve is). Each run also writes
+`evals/runs/<config>-<utc>.json` with per-query ids, scores and answers, and
+records the git commit, so a row can be traced to code, config, prompt
+version and the exact retrieved ids.
+
+**Generation model.** CLAUDE.md does not name one; the baseline uses Claude
+(`claude-opus-5-5`) through the Anthropic SDK with the model as a config field
+(`generation:`). Thinking is left at the model default with `effort: medium`;
+the system prompt is cached. Server-side refusal fallbacks are deliberately
+not enabled: a fallback would answer some questions with a different model
+inside a row that claims one config. A `refusal` stop reason is recorded as
+such instead.
+
+**Abstain accuracy** is reported alongside faithfulness: the fraction of
+answered queries where the model abstained exactly when the golden entry is
+unanswerable. It is a cheap, judge-free check on refusal behaviour, not a
+substitute for faithfulness.

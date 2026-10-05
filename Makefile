@@ -26,8 +26,8 @@ index:            ## ingest corpus per config: make index CONFIG=evals/configs/b
 search:           ## dense top-k for a query: make search Q="lock a table" [CONFIG=...]
 	$(UV) run python -m retrieval.dense "$(Q)" --config $(or $(CONFIG),evals/configs/baseline.yaml)
 
-eval:             ## (step 7) run golden set against a config
-	@echo "evals/run.py not written yet (build order step 7)"; exit 1
+eval:             ## run golden set against a config: make eval CONFIG=evals/configs/baseline.yaml [GENERATE=1]
+	$(UV) run python -m evals.run $(CONFIG) $(if $(GENERATE),--generate,)
 
 lint:
 	$(UV) run ruff check .

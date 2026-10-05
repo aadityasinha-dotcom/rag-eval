@@ -12,6 +12,7 @@ dependencies = [
     "pgvector>=0.3",
     "pyyaml>=6",
     "python-dotenv>=1",
+    "anthropic>=1.0",
 ]
 
 [dependency-groups]
@@ -42,5 +43,5 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["ingest", "evals", "retrieval"]
+packages = ["ingest", "evals", "retrieval", "generation"]
 ignore_missing_imports = true

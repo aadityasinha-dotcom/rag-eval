@@ -5,3 +5,5 @@ embedding: text-embedding-3-small
 retrieval: dense
 top_k: 5
 rerank: null
+generation: claude-opus-5-5
+prompt: v1
