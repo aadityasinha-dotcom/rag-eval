@@ -128,3 +128,37 @@ def test_cli_reports_missing_golden_and_database(
     monkeypatch.setenv("DATABASE_URL", "postgresql://nobody@127.0.0.1:1/nope")
     assert run_cli.main([cfg, "--golden", str(golden), "--dry-run"]) == 1
     assert "error:" in capsys.readouterr().err
+
+
+class ScriptedJudge:
+    name = "scripted-judge"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, list[str]]] = []
+
+    def score(self, question: str, answer: str, contexts: list[str]) -> float | None:
+        self.calls.append((question, answer, list(contexts)))
+        return 0.5 if "wal" in question else 1.0
+
+
+def test_faithfulness_judges_only_real_answers_and_lands_in_row(tmp_path: Path) -> None:
+    judge = ScriptedJudge()
+    res = run(CFG, ENTRIES, ScriptedRetriever(TABLE), ScriptedGenerator(), judge=judge)
+    assert [c[0] for c in judge.calls] == ["lock?", "wal?"]  # q3 abstained: not judged
+    assert judge.calls[0][2] == ["text of sql-lock#c0", "text of x#c0", "text of y#c0"]
+    by_id = {q.id: q.faithfulness for q in res.queries}
+    assert by_id == {"q1": 1.0, "q2": 0.5, "q3": None}
+    assert res.faithfulness() == (0.75, 2)
+    assert res.judge == "scripted-judge"
+    assert "faithfulness scripted-judge: 0.750 over 2 judged answers" in summary(res)
+
+    row = results_row(res, None)
+    cells = [c.strip() for c in row.strip().strip("|").split("|")]
+    assert cells[10] == "0.750 (n=2)"
+    payload = json.loads(write_run_file(res, tmp_path).read_text())
+    assert payload["faithfulness_mean_n"] == [0.75, 2] and payload["judge"] == "scripted-judge"
+
+
+def test_judge_without_generator_is_an_error() -> None:
+    with pytest.raises(ValueError, match="needs a generator"):
+        run(CFG, ENTRIES, ScriptedRetriever(TABLE), None, judge=ScriptedJudge())

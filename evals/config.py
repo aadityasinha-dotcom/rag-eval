@@ -8,6 +8,7 @@
     rerank: null                    # reranker name (later phase)
     generation: claude-opus-5-5     # answer model, used only with run.py --generate
     prompt: v1                      # key in generation.prompts.PROMPTS
+    judge: claude-sonnet-4-6        # faithfulness judge, used only with --faithfulness
 
 Unknown keys are an error so a typo cannot silently fall back to a default.
 """
@@ -35,6 +36,7 @@ class RunConfig:
     rerank: str | None = None
     generation: str = "claude-opus-5-5"
     prompt: str = "v1"
+    judge: str = "claude-sonnet-4-6"
 
 
 def load_config(path: Path) -> RunConfig:
@@ -60,4 +62,6 @@ def load_config(path: Path) -> RunConfig:
 
     if cfg.prompt not in PROMPTS:
         raise ValueError(f"{path}: prompt {cfg.prompt!r} not in {sorted(PROMPTS)}")
+    if not isinstance(cfg.judge, str) or not cfg.judge:
+        raise ValueError(f"{path}: judge must be a model name")
     return cfg

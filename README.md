@@ -38,7 +38,9 @@ corpus/*.html  ──parse──▶  ParsedDoc  ──chunk──▶  Chunk (id 
   answer, abstaining when the context does not contain one.
 - **Eval:** `evals/run.py` runs a config over the golden set, scores
   recall@k, MRR and nDCG@k, measures retrieval latency, and appends a row to
-  `docs/results.md` plus a per-query JSON under `evals/runs/`.
+  `docs/results.md` plus a per-query JSON under `evals/runs/`. With
+  `FAITHFULNESS=1` each real answer is scored by Ragas' Faithfulness using
+  the config's judge model.
 
 Design rules, build order and the reasoning behind each choice live in
 [CLAUDE.md](CLAUDE.md) and [docs/tradeoffs.md](docs/tradeoffs.md).
@@ -57,6 +59,7 @@ make test                     # 76 tests; the Postgres ones skip if the db is do
 make index CONFIG=evals/configs/baseline.yaml
 make eval  CONFIG=evals/configs/baseline.yaml            # retrieval metrics -> results.md
 make eval  CONFIG=evals/configs/baseline.yaml GENERATE=1 # also answers each question
+make eval  CONFIG=evals/configs/baseline.yaml FAITHFULNESS=1 # ...and judges them with Ragas
 ```
 
 `evals/configs/smoke-hash64.yaml` runs the whole pipeline offline with a
@@ -110,7 +113,7 @@ evals/
   golden.jsonl     the hand-labelled set
   golden.py        validator / viewer
   config.py        RunConfig from evals/configs/*.yaml
-  metrics/         retrieval.py (recall@k, MRR, nDCG@k)
+  metrics/         retrieval.py (recall@k, MRR, nDCG@k), generation.py (Ragas faithfulness)
   run.py           the harness
   runs/            per-run JSON detail
 db/                init.sql (extension), schema.sql (tables)

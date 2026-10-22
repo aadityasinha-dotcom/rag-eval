@@ -18,6 +18,9 @@ def test_checked_in_configs_load() -> None:
         retrieval="dense",
         top_k=5,
         rerank=None,
+        generation="claude-opus-5-5",
+        prompt="v1",
+        judge="claude-sonnet-4-6",
     )
     assert load_config(CONFIGS / "smoke-hash64.yaml").embedding == "hash64"
 
@@ -32,6 +35,7 @@ def test_checked_in_configs_load() -> None:
         ("name: x\nretrieval: magic\n", "retrieval 'magic'"),
         ("name: x\ntop_k: 0\n", "top_k"),
         ("name: x\nprompt: v9\n", "prompt 'v9'"),
+        ("name: x\njudge: ''\n", "judge must be"),
         ("- a\n", "mapping"),
     ],
 )

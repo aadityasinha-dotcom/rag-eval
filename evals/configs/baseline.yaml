@@ -7,3 +7,4 @@ top_k: 5
 rerank: null
 generation: claude-opus-5-5
 prompt: v1
+judge: claude-sonnet-4-6

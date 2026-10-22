@@ -107,3 +107,21 @@ such instead.
 answered queries where the model abstained exactly when the golden entry is
 unanswerable. It is a cheap, judge-free check on refusal behaviour, not a
 substitute for faithfulness.
+
+## Faithfulness (Ragas)
+
+`evals/metrics/generation.py` wraps Ragas' Faithfulness: the judge splits an
+answer into statements and checks each against the retrieved chunks; the
+score is the supported fraction. Choices:
+
+- **Judge is a config field, default `claude-sonnet-4-6`, never the answer
+  model.** A separate judge limits self-preference. 4.6 was chosen over 5.5
+  because Ragas drives the judge through instructor with sampling parameters;
+  Claude 4.7+ rejects temperature and 5.5 rejects forced tool use. The wrapper
+  uses instructor's JSON mode and sends temperature 0 only to models that
+  accept it, so a 5.5 judge also works, just without pinned sampling.
+- **Only real answers are judged.** An abstention or an API refusal has no
+  claims to verify; it scores None and the results cell shows the mean with
+  `n=` so the coverage is visible next to the number.
+- **Ragas pins.** `langchain-community<0.4`: Ragas 0.4.3 still imports a
+  Vertex AI module that langchain-community 0.4 removed.

@@ -13,6 +13,8 @@ dependencies = [
     "pyyaml>=6",
     "python-dotenv>=1",
     "anthropic>=1.0",
+    "ragas>=0.4",
+    "langchain-community<0.4",
 ]
 
 [dependency-groups]

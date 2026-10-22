@@ -1,12 +1,15 @@
 """Run one config over the golden set, print metrics, append a row to docs/results.md.
 
-    python -m evals.run evals/configs/baseline.yaml [--generate] [--dry-run] [--limit N]
+    python -m evals.run evals/configs/baseline.yaml [--generate] [--faithfulness] \
+        [--dry-run] [--limit N]
 
 Retrieval metrics (recall@k, MRR, nDCG@k) need Postgres with the config
 indexed (make index CONFIG=...). --generate also answers every question with
 the config's generation model and records answers, citations, abstentions and
-token usage in the run file; faithfulness (Ragas) is not computed yet and its
-column stays blank (CLAUDE.md rule 5: no number that was not measured).
+token usage in the run file. --faithfulness additionally scores each real
+answer with Ragas' Faithfulness using the config's judge model; abstentions and
+refusals are not judged. Columns for anything not measured stay blank
+(CLAUDE.md rule 5: no number that was not measured).
 
 Every run writes evals/runs/<config>-<utc>.json with per-query detail; the
 results.md row links to it. --dry-run skips the row and the file.
@@ -31,6 +34,7 @@ import psycopg
 
 from evals.config import RunConfig, load_config
 from evals.golden import DEFAULT_GOLDEN, GoldenEntry, load_golden
+from evals.metrics.generation import FaithfulnessJudge, RagasFaithfulness
 from evals.metrics.retrieval import AggregateScores, RetrievalScores, aggregate, score_query
 from generation.answer import Answer, ClaudeGenerator, Generator
 from generation.prompts import PROMPTS
@@ -64,6 +68,7 @@ class QueryResult:
     retrieval_ms: float
     metrics: RetrievalScores
     answer: Answer | None = None
+    faithfulness: float | None = None
 
 
 @dataclass
@@ -73,6 +78,7 @@ class RunResult:
     commit: str | None
     retriever: str
     generator: str | None
+    judge: str | None = None
     queries: list[QueryResult] = field(default_factory=list)
 
     @property
@@ -86,6 +92,11 @@ class RunResult:
         p50 = statistics.median(xs)
         p95 = xs[min(len(xs) - 1, int(round(0.95 * (len(xs) - 1))))]
         return (p50, p95)
+
+    def faithfulness(self) -> tuple[float | None, int]:
+        """(mean over judged answers, number judged). Abstentions/refusals are not judged."""
+        xs = [q.faithfulness for q in self.queries if q.faithfulness is not None]
+        return (sum(xs) / len(xs), len(xs)) if xs else (None, 0)
 
     def abstain_accuracy(self) -> float | None:
         """Fraction of answered queries where abstaining matched answerability.
@@ -120,13 +131,17 @@ def run(
     retriever: Retriever,
     generator: Generator | None = None,
     log: Callable[[str], None] | None = None,
+    judge: FaithfulnessJudge | None = None,
 ) -> RunResult:
+    if judge is not None and generator is None:
+        raise ValueError("a faithfulness judge needs a generator")
     result = RunResult(
         config=config,
         started_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         commit=git_commit(),
         retriever=retriever.name,
         generator=generator.name if generator else None,
+        judge=judge.name if judge else None,
     )
     for i, e in enumerate(entries, start=1):
         t0 = time.perf_counter()
@@ -144,6 +159,8 @@ def run(
         )
         if generator is not None:
             q.answer = generator.answer(e.question, hits)
+            if judge is not None and not (q.answer.abstained or q.answer.refused) and hits:
+                q.faithfulness = judge.score(e.question, q.answer.text, [h.text for h in hits])
         result.queries.append(q)
         if log:
             r = q.metrics.recall
@@ -153,6 +170,11 @@ def run(
 
 def _fmt(x: float | None, digits: int = 3) -> str:
     return BLANK if x is None else f"{x:.{digits}f}"
+
+
+def _fmt_faith(res: RunResult) -> str:
+    mean, n = res.faithfulness()
+    return BLANK if mean is None else f"{mean:.3f} (n={n})"
 
 
 def results_row(res: RunResult, run_file: Path | None, results_md: Path = RESULTS_MD) -> str:
@@ -167,7 +189,7 @@ def results_row(res: RunResult, run_file: Path | None, results_md: Path = RESULT
         f"| {res.started_utc[:10]} | {cfg.name} | {cfg.chunking} | {cfg.embedding} | "
         f"{cfg.retrieval}{' + ' + cfg.rerank if cfg.rerank else ''} | {cfg.top_k} | "
         f"{agg.scored}/{agg.skipped} | {_fmt(agg.recall)} | {_fmt(agg.mrr)} | {_fmt(agg.ndcg)} | "
-        f"{BLANK} | {_fmt(res.abstain_accuracy(), 2)} | {p50:.0f}/{p95:.0f} | {BLANK} | "
+        f"{_fmt_faith(res)} | {_fmt(res.abstain_accuracy(), 2)} | {p50:.0f}/{p95:.0f} | {BLANK} | "
         f"{res.commit or BLANK} | {run_link} |\n"
     )
 
@@ -190,7 +212,9 @@ def write_run_file(res: RunResult, runs_dir: Path = RUNS_DIR) -> Path:
         "commit": res.commit,
         "retriever": res.retriever,
         "generator": res.generator,
+        "judge": res.judge,
         "retrieval": asdict(res.retrieval_scores),
+        "faithfulness_mean_n": res.faithfulness(),
         "retrieval_ms_p50_p95": res.latency_percentiles(),
         "abstain_accuracy": res.abstain_accuracy(),
         "queries": [asdict(q) for q in res.queries],
@@ -218,6 +242,9 @@ def summary(res: RunResult) -> str:
             f"  generation {res.generator}: {len(answered)} answers, {refused} refusals, "
             f"abstain accuracy {_fmt(acc, 2)}, tokens in/out {toks_in}/{toks_out}"
         )
+    if res.judge:
+        mean, n = res.faithfulness()
+        lines.append(f"  faithfulness {res.judge}: {_fmt(mean)} over {n} judged answers")
     return "\n".join(lines)
 
 
@@ -226,6 +253,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("config", type=Path)
     ap.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN)
     ap.add_argument("--generate", action="store_true", help="also answer with the LLM")
+    ap.add_argument(
+        "--faithfulness", action="store_true", help="judge answers with Ragas (implies --generate)"
+    )
     ap.add_argument("--dry-run", action="store_true", help="print metrics, write nothing")
     ap.add_argument("--limit", type=int, default=None, help="first N golden entries only")
     ap.add_argument("--quiet", action="store_true")
@@ -239,9 +269,9 @@ def main(argv: list[str] | None = None) -> int:
             entries = entries[: args.limit]
         if not entries:
             raise ValueError(f"{args.golden} has no entries")
-        generator = (
-            ClaudeGenerator(config.generation, PROMPTS[config.prompt]) if args.generate else None
-        )
+        generate = args.generate or args.faithfulness
+        generator = ClaudeGenerator(config.generation, PROMPTS[config.prompt]) if generate else None
+        judge = RagasFaithfulness(config.judge) if args.faithfulness else None
         with db.connect() as conn:
             retriever = build_retriever(config, conn)
             res = run(
@@ -250,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
                 retriever,
                 generator,
                 log=None if args.quiet else lambda s: print(s, file=sys.stderr),
+                judge=judge,
             )
     except (
         FileNotFoundError,
