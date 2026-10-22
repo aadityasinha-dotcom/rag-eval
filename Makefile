@@ -1,4 +1,4 @@
-.PHONY: dev down fetch index eval lint test chunks grep golden-check search
+.PHONY: dev down fetch index eval lint test chunks grep golden-check golden-freeze search
 
 UV ?= uv
 
@@ -19,6 +19,9 @@ grep:             ## find chunk ids containing a phrase: make grep Q="NOWAIT"
 
 golden-check:     ## validate evals/golden.jsonl against current chunk ids
 	$(UV) run python -m evals.golden --check --strategy $(or $(STRATEGY),fixed512)
+
+golden-freeze:    ## record cited chunks' text hashes (drift check); FORCE=1 to accept changes
+	$(UV) run python -m evals.golden --freeze --strategy $(or $(STRATEGY),fixed512) $(if $(FORCE),--force,)
 
 index:            ## ingest corpus per config: make index CONFIG=evals/configs/baseline.yaml
 	$(UV) run python -m ingest.index $(CONFIG)

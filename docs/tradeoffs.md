@@ -25,9 +25,12 @@ Alternatives considered:
   need a structure-aware parser; that is the semantic-chunking variant, a later
   config, not the baseline.
 
-Each chunk carries `text_hash` (sha256 of its text) so drift can be detected
-later: when indexing lands, stored hashes let a check compare the golden set's
-chunks with the current corpus instead of silently scoring against moved text.
+Each chunk carries `text_hash` (sha256 of its text). `evals/golden.lock.json`
+records that hash for every chunk the golden set cites, written by
+`make golden-freeze` after labelling; `make golden-check` fails if any cited
+chunk's text no longer matches, so a corpus edit or chunker change is caught
+before it silently scores against moved text. Accepting a change is explicit
+(`FORCE=1`) and follows re-labelling, never precedes it.
 
 **Why a plain Python window rather than a LlamaIndex splitter.** LlamaIndex is
 allowed for node parsing, but its splitters are sentence/token aware and their

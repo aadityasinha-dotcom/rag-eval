@@ -97,7 +97,8 @@ make dev            # postgres + pgvector via docker compose
 make fetch          # download corpus per scripts/sources.txt
 make chunks DOC=    # print a doc's chunks with ids (for writing golden.jsonl)
 make grep Q=        # chunk ids whose text matches a phrase (for finding ids)
-make golden-check   # validate golden.jsonl: shape + every chunk id exists
+make golden-check   # validate golden.jsonl: shape, ids exist, cited text unchanged
+make golden-freeze  # record cited chunks' text hashes after labelling (FORCE=1 to accept drift)
 make index CONFIG=  # ingest corpus with a chunking strategy
 make search Q=      # dense top-k for one query (sanity check, not a metric)
 make eval CONFIG=   # run golden set, append row to results.md

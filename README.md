@@ -78,13 +78,16 @@ answer states the refusal). Tools for labelling:
 ```bash
 make grep Q="NOWAIT is specified"       # chunk ids whose text matches, with a snippet
 make chunks DOC=sql-lock                # one page's chunks with ids
-make golden-check                       # shape + every chunk id exists under fixed512
+make golden-check                       # shape, ids exist, cited text unchanged since freeze
+make golden-freeze                      # after a batch: record cited chunks' text hashes
 uv run python -m evals.golden --show q007   # question, answer and labelled chunk text
 uv run python -m evals.golden --stats
 ```
 
-Changing a chunking strategy changes which text an id points to. Affected
-entries are re-labelled, not worked around (rule 7).
+Changing a chunking strategy, or an edited corpus, changes which text an id
+points to. `golden-check` catches this against the hashes recorded by
+`golden-freeze`; affected entries are re-labelled, then frozen again with
+`FORCE=1` (rule 7).
 
 ## Adding a variant
 

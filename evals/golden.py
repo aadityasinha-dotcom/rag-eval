@@ -6,6 +6,13 @@ writes it; it checks that what was written is usable:
   python -m evals.golden --check              # validate shape + every chunk id exists
   python -m evals.golden --show q001          # question, answer, and the labelled chunks' text
   python -m evals.golden --stats              # counts by difficulty, docs covered
+  python -m evals.golden --freeze [--force]   # record cited chunks' text hashes in golden.lock.json
+
+Drift (CLAUDE.md rule 7): ids are positional, so an edited corpus or a changed
+chunker can leave an id pointing at different text. --freeze records
+sha256(text) for every cited chunk in evals/golden.lock.json (next to the
+golden file); --check then fails on any cited chunk whose text no longer
+matches. After re-labelling, --freeze --force accepts the new text.
 
 Entry format (one JSON object per line):
   {"id": "q001", "question": "...", "answer": "...",
@@ -114,6 +121,63 @@ def _all_chunks(strategy: ChunkStrategy, corpus: Path) -> dict[str, Chunk]:
     return {c.chunk_id: c for c in chunk_corpus(load_corpus(corpus), strategy)}
 
 
+@dataclass(frozen=True)
+class Lock:
+    """Text hashes of every cited chunk at the time the labels were last accepted."""
+
+    strategy: str
+    chunks: dict[str, str]  # chunk_id -> sha256(text)
+
+
+def lock_path_for(golden: Path) -> Path:
+    return golden.with_suffix(".lock.json")  # golden.jsonl -> golden.lock.json
+
+
+def load_lock(path: Path) -> Lock | None:
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return Lock(strategy=data["strategy"], chunks=dict(data["chunks"]))
+
+
+def save_lock(path: Path, lock: Lock) -> None:
+    payload = {"strategy": lock.strategy, "chunks": dict(sorted(lock.chunks.items()))}
+    path.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
+
+
+def cited_ids(entries: list[GoldenEntry]) -> list[str]:
+    return sorted({cid for e in entries for cid in e.relevant_chunk_ids})
+
+
+def drift(
+    entries: list[GoldenEntry], chunks: dict[str, Chunk], lock: Lock, strategy: str
+) -> tuple[list[str], list[str]]:
+    """(problems, unfrozen ids). A problem is a cited chunk whose text changed
+    since --freeze, or a lock recorded under a different strategy."""
+    if lock.strategy != strategy:
+        return (
+            [f"lock was frozen under strategy {lock.strategy!r}, checking {strategy!r}: re-label"],
+            [],
+        )
+    problems: list[str] = []
+    unfrozen: list[str] = []
+    for e in entries:
+        for cid in e.relevant_chunk_ids:
+            c = chunks.get(cid)
+            if c is None:
+                continue  # reported by validate()
+            frozen = lock.chunks.get(cid)
+            if frozen is None:
+                unfrozen.append(cid)
+            elif frozen != c.text_hash:
+                problems.append(
+                    f"{e.id}: {cid} text changed since it was labelled "
+                    f"(frozen {frozen[:12]}, now {c.text_hash[:12]}); "
+                    "re-label, then --freeze --force"
+                )
+    return problems, sorted(set(unfrozen))
+
+
 def cmd_check(golden: Path, strategy: ChunkStrategy, corpus: Path) -> int:
     if not golden.is_file():
         print(f"{golden} does not exist yet", file=sys.stderr)
@@ -123,7 +187,21 @@ def cmd_check(golden: Path, strategy: ChunkStrategy, corpus: Path) -> int:
     except ValueError as e:
         print(f"{golden}: malformed\n{e}", file=sys.stderr)
         return 1
-    problems = validate(entries, set(_all_chunks(strategy, corpus)))
+    chunks = _all_chunks(strategy, corpus)
+    problems = validate(entries, set(chunks))
+    lock = load_lock(lock_path_for(golden))
+    if lock is None:
+        if cited_ids(entries):
+            print("notice: no lock file; run --freeze to record chunk text hashes", file=sys.stderr)
+    else:
+        drifted, unfrozen = drift(entries, chunks, lock, strategy.name)
+        problems.extend(drifted)
+        if unfrozen:
+            print(
+                f"notice: {len(unfrozen)} cited chunk(s) not in the lock file; "
+                "run --freeze after labelling",
+                file=sys.stderr,
+            )
     for p in problems:
         print(p, file=sys.stderr)
     n = len(entries)
@@ -133,6 +211,48 @@ def cmd_check(golden: Path, strategy: ChunkStrategy, corpus: Path) -> int:
     return 1 if problems else 0
 
 
+def cmd_freeze(golden: Path, strategy: ChunkStrategy, corpus: Path, force: bool) -> int:
+    """Record current text hashes for every cited chunk. Refuses to overwrite a
+    changed hash unless --force, so drift is accepted explicitly, never by habit."""
+    entries = load_golden(golden)
+    chunks = _all_chunks(strategy, corpus)
+    problems = validate(entries, set(chunks))
+    if problems:
+        for p in problems:
+            print(p, file=sys.stderr)
+        print("refusing to freeze a golden set with problems", file=sys.stderr)
+        return 1
+    path = lock_path_for(golden)
+    old = load_lock(path)
+    new = Lock(strategy.name, {cid: chunks[cid].text_hash for cid in cited_ids(entries)})
+    if old is None:
+        added, updated, removed = set(new.chunks), set(), set()
+    else:
+        added = set(new.chunks) - set(old.chunks)
+        removed = set(old.chunks) - set(new.chunks)
+        updated = {
+            cid for cid in set(new.chunks) & set(old.chunks) if old.chunks[cid] != new.chunks[cid]
+        }
+        if old.strategy != strategy.name:
+            updated |= set(new.chunks) & set(old.chunks)
+    if updated and not force:
+        for cid in sorted(updated):
+            print(f"{cid}: text changed since last freeze", file=sys.stderr)
+        print(
+            f"refusing to overwrite {len(updated)} changed hash(es); re-label those entries, "
+            "then run --freeze --force",
+            file=sys.stderr,
+        )
+        return 1
+    save_lock(path, new)
+    print(
+        f"froze {len(new.chunks)} chunk hashes to {path.name} "
+        f"({len(added)} added, {len(updated)} updated, {len(removed)} removed, "
+        f"strategy={strategy.name})"
+    )
+    return 0
+
+
 def cmd_show(golden: Path, qid: str, strategy: ChunkStrategy, corpus: Path) -> int:
     entries = {e.id: e for e in load_golden(golden)}
     if qid not in entries:
@@ -140,13 +260,21 @@ def cmd_show(golden: Path, qid: str, strategy: ChunkStrategy, corpus: Path) -> i
         return 1
     e = entries[qid]
     chunks = _all_chunks(strategy, corpus)
+    lock = load_lock(lock_path_for(golden))
     print(f"# {e.id} [{e.difficulty}]\nQ: {e.question}\nA: {e.answer}\n")
     for cid in e.relevant_chunk_ids:
         c = chunks.get(cid)
         if c is None:
             print(f"== {cid}  (MISSING under {strategy.name})\n")
-        else:
-            print(f"== {cid}  [{c.start}:{c.end})  sha256:{c.text_hash[:12]}\n{c.text}\n")
+            continue
+        mark = ""
+        if lock is not None and lock.strategy == strategy.name:
+            frozen = lock.chunks.get(cid)
+            if frozen is None:
+                mark = "  (not frozen)"
+            elif frozen != c.text_hash:
+                mark = "  (DRIFTED since freeze)"
+        print(f"== {cid}  [{c.start}:{c.end})  sha256:{c.text_hash[:12]}{mark}\n{c.text}\n")
     return 0
 
 
@@ -173,11 +301,15 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--show", metavar="QID")
     mode.add_argument("--stats", action="store_true")
+    mode.add_argument("--freeze", action="store_true", help="record cited chunk hashes")
+    ap.add_argument("--force", action="store_true", help="with --freeze: accept changed text")
     args = ap.parse_args(argv)
     strategy = STRATEGIES[args.strategy]
     try:
         if args.check:
             return cmd_check(args.golden, strategy, args.corpus)
+        if args.freeze:
+            return cmd_freeze(args.golden, strategy, args.corpus, args.force)
         if args.stats:
             return cmd_stats(args.golden)
         return cmd_show(args.golden, args.show, strategy, args.corpus)
