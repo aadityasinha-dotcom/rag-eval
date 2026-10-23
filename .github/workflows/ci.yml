@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: rag
+          POSTGRES_DB: rag_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag -d rag_eval"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://rag:rag@localhost:5432/rag_eval
+      RAG_EVAL_REQUIRE_DB: "1"   # database tests must run here, never skip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --all-groups --locked
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test

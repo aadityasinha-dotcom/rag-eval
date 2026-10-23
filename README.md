@@ -1,5 +1,7 @@
 # rag-eval
 
+[![ci](https://github.com/aadityasinha-dotcom/rag-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/aadityasinha-dotcom/rag-eval/actions/workflows/ci.yml)
+
 Document Q&A over the PostgreSQL 16 documentation where retrieval quality is a
 measured engineering metric, not a demo. The deliverable is an ablation table
 (`docs/results.md`) showing how each retrieval change moved recall,
@@ -125,7 +127,7 @@ tests/             pytest; fixtures/corpus is a 5-file mini corpus
 
 ```bash
 make lint          # ruff check, ruff format --check, mypy --strict
-make test
+make test          # database tests skip without Postgres; CI runs them against a pgvector service
 make search Q="lock a table without waiting"   # dense top-k sanity check, not a metric
 ```
 

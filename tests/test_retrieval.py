@@ -1,16 +1,14 @@
-"""retrieval/dense.py against Postgres (skips without a database) plus offline checks."""
+"""retrieval/dense.py against Postgres (fixture `pg`: skipped without a database, required in CI)
+plus offline checks."""
 
 from __future__ import annotations
 
-import uuid
-from collections.abc import Iterator
 from pathlib import Path
 
 import psycopg
 import pytest
 
 from evals.config import RunConfig
-from ingest import db
 from ingest.embed import HashEmbedder
 from ingest.index import index_corpus
 from retrieval.base import Hit
@@ -21,24 +19,10 @@ CONFIG = RunConfig(name="t", chunking="fixed512", embedding="hash64")
 
 
 @pytest.fixture
-def indexed(tmp_path: Path) -> Iterator[tuple[psycopg.Connection, HashEmbedder]]:
-    try:
-        c = db.connect()
-    except psycopg.OperationalError as e:
-        pytest.skip(f"no database: {e}".splitlines()[0])
-    schema = f"test_{uuid.uuid4().hex[:8]}"
-    c.execute(f"CREATE SCHEMA {schema}")
-    c.execute(f"SET search_path TO {schema}, public")
-    c.commit()
+def indexed(pg: psycopg.Connection) -> tuple[psycopg.Connection, HashEmbedder]:
     emb = HashEmbedder()
-    index_corpus(CONFIG, c, emb, FIXTURES)
-    try:
-        yield c, emb
-    finally:
-        c.rollback()
-        c.execute(f"DROP SCHEMA {schema} CASCADE")
-        c.commit()
-        c.close()
+    index_corpus(CONFIG, pg, emb, FIXTURES)
+    return pg, emb
 
 
 def test_exact_chunk_text_scores_one_and_ranks_first(
