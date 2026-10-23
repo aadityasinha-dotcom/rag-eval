@@ -125,3 +125,17 @@ score is the supported fraction. Choices:
   `n=` so the coverage is visible next to the number.
 - **Ragas pins.** `langchain-community<0.4`: Ragas 0.4.3 still imports a
   Vertex AI module that langchain-community 0.4 removed.
+
+## Instrumentation (llm-metrics)
+
+CLAUDE.md calls the SDK `llmobserve`; its published name is `llm-metrics`
+(import `llm_metrics`). It is an optional extra (`observe`) and
+`evals/instrument.py` is a thin shim that imports it only when
+`LLM_METRICS_API_KEY` is set, so the repo runs without the SDK installed at
+all. Per golden query: one root span, a `retrieval` observation, the
+generation from the wrapped Anthropic client, and recall/MRR/nDCG/abstained
+as `heuristic` scores plus faithfulness as an `llm_judge` score. The judge's
+own calls are not traced: they are eval overhead, not $/query. Embedding
+calls are traced only at query time, not during indexing, for the same
+reason. The SDK does no cost math; `$/query` in results.md stays blank until
+a read-back from the platform exists, and the run file keeps trace ids for it.

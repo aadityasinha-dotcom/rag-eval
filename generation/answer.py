@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from evals import instrument
 from generation.prompts import ABSTAIN_PREFIX, Prompt
 from retrieval.base import Hit
 
@@ -70,7 +71,9 @@ class ClaudeGenerator:
                 )
             import anthropic
 
-            self._client = anthropic.Anthropic(max_retries=5)
+            # a no-op unless LLM_METRICS_API_KEY is set; otherwise every call becomes a
+            # `generation` observation with real token counts (CLAUDE.md rule 8)
+            self._client = instrument.wrap_anthropic(anthropic.Anthropic(max_retries=5))
         return self._client
 
     def answer(self, question: str, hits: list[Hit]) -> Answer:

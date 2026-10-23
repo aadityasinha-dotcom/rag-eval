@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from evals import instrument
 from ingest.parse import CACHE_DIR
 
 _WORD = re.compile(r"\w+")
@@ -75,11 +76,13 @@ class OpenAIEmbedder:
         dim: int,
         batch_size: int = 256,
         client: Any | None = None,
+        instrumented: bool = False,
     ) -> None:
         self._model = model
         self._dim = dim
         self.batch_size = batch_size
         self._client = client
+        self.instrumented = instrumented  # trace embeddings.create (query time, not indexing)
 
     @property
     def name(self) -> str:
@@ -98,7 +101,8 @@ class OpenAIEmbedder:
                 )
             from openai import OpenAI
 
-            self._client = OpenAI(max_retries=5)
+            client = OpenAI(max_retries=5)
+            self._client = instrument.wrap_openai(client) if self.instrumented else client
         return self._client
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -194,8 +198,11 @@ EMBEDDERS: dict[str, Callable[[], Embedder]] = {
 }
 
 
-def get_embedder(name: str, cache: bool = True) -> Embedder:
+def get_embedder(name: str, cache: bool = True, instrumented: bool = False) -> Embedder:
+    """instrumented=True traces each API call (used by the eval harness, not by indexing)."""
     if name not in EMBEDDERS:
         raise ValueError(f"unknown embedding {name!r}; known: {sorted(EMBEDDERS)}")
     inner = EMBEDDERS[name]()
+    if instrumented and isinstance(inner, OpenAIEmbedder):
+        inner.instrumented = True
     return CachedEmbedder(inner) if cache else inner

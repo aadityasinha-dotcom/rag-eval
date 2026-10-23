@@ -10,9 +10,12 @@ from retrieval.base import Retriever
 from retrieval.dense import DenseRetriever
 
 
-def build_retriever(config: RunConfig, conn: psycopg.Connection) -> Retriever:
+def build_retriever(
+    config: RunConfig, conn: psycopg.Connection, instrumented: bool = False
+) -> Retriever:
     if config.rerank is not None:
         raise NotImplementedError("reranking is a later phase (CLAUDE.md)")
     if config.retrieval == "dense":
-        return DenseRetriever(conn, get_embedder(config.embedding), config.chunking)
+        embedder = get_embedder(config.embedding, instrumented=instrumented)
+        return DenseRetriever(conn, embedder, config.chunking)
     raise NotImplementedError(f"retrieval={config.retrieval!r} is a later phase (CLAUDE.md)")

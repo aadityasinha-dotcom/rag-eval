@@ -32,6 +32,7 @@ from typing import Any
 
 import psycopg
 
+from evals import instrument
 from evals.config import RunConfig, load_config
 from evals.golden import DEFAULT_GOLDEN, GoldenEntry, load_golden
 from evals.metrics.generation import FaithfulnessJudge, RagasFaithfulness
@@ -69,6 +70,7 @@ class QueryResult:
     metrics: RetrievalScores
     answer: Answer | None = None
     faithfulness: float | None = None
+    trace_id: str | None = None  # llm-metrics trace, when instrumentation is on
 
 
 @dataclass
@@ -79,6 +81,7 @@ class RunResult:
     retriever: str
     generator: str | None
     judge: str | None = None
+    instrumented: bool = False
     queries: list[QueryResult] = field(default_factory=list)
 
     @property
@@ -142,10 +145,25 @@ def run(
         retriever=retriever.name,
         generator=generator.name if generator else None,
         judge=judge.name if judge else None,
+        instrumented=instrument.setup(release=git_commit()),
     )
-    for i, e in enumerate(entries, start=1):
+
+    def one_query(e: GoldenEntry) -> QueryResult:
+        instrument.annotate_trace(
+            session_id=f"{config.name}@{result.started_utc}",
+            tags=[config.name, e.difficulty],
+            golden_id=e.id,
+            config=asdict(config),
+        )
         t0 = time.perf_counter()
-        hits = retriever.search(e.question, config.top_k)
+        hits = instrument.traced(
+            "retrieve",
+            "retrieval",
+            retriever.search,
+            e.question,
+            config.top_k,
+            metadata={"retriever": retriever.name, "top_k": config.top_k},
+        )
         ms = (time.perf_counter() - t0) * 1000
         retrieved = [h.chunk_id for h in hits]
         q = QueryResult(
@@ -156,15 +174,37 @@ def run(
             scores=[round(h.score, 6) for h in hits],
             retrieval_ms=round(ms, 2),
             metrics=score_query(retrieved, e.relevant_chunk_ids, config.top_k),
+            trace_id=instrument.current_trace_id(),
         )
+        for metric, value in (
+            (f"recall@{config.top_k}", q.metrics.recall),
+            ("mrr", q.metrics.mrr),
+            (f"ndcg@{config.top_k}", q.metrics.ndcg),
+        ):
+            if value is not None:
+                instrument.record_score(metric, value, source="heuristic")
         if generator is not None:
             q.answer = generator.answer(e.question, hits)
+            instrument.record_score("abstained", q.answer.abstained, source="heuristic")
             if judge is not None and not (q.answer.abstained or q.answer.refused) and hits:
                 q.faithfulness = judge.score(e.question, q.answer.text, [h.text for h in hits])
+                if q.faithfulness is not None:
+                    instrument.record_score("faithfulness", q.faithfulness, source="llm_judge")
+        return q
+
+    for i, e in enumerate(entries, start=1):
+        q = instrument.traced(
+            "rag-eval.query",
+            "span",
+            one_query,
+            e,
+            metadata={"golden_id": e.id, "difficulty": e.difficulty, "config": config.name},
+        )
         result.queries.append(q)
         if log:
             r = q.metrics.recall
             log(f"[{i}/{len(entries)}] {e.id} recall={'n/a' if r is None else f'{r:.2f}'}")
+    instrument.flush()
     return result
 
 
@@ -213,6 +253,7 @@ def write_run_file(res: RunResult, runs_dir: Path = RUNS_DIR) -> Path:
         "retriever": res.retriever,
         "generator": res.generator,
         "judge": res.judge,
+        "instrumented": res.instrumented,
         "retrieval": asdict(res.retrieval_scores),
         "faithfulness_mean_n": res.faithfulness(),
         "retrieval_ms_p50_p95": res.latency_percentiles(),
@@ -232,6 +273,8 @@ def summary(res: RunResult) -> str:
         f"  recall@k {agg.recall:.3f}   MRR {agg.mrr:.3f}   nDCG@k {agg.ndcg:.3f}",
         f"  retrieval latency p50 {p50:.0f} ms, p95 {p95:.0f} ms",
     ]
+    if res.instrumented:
+        lines.append("  traces sent to llm-metrics (trace ids in the run file)")
     if res.generator:
         answered = [q.answer for q in res.queries if q.answer]
         refused = sum(1 for a in answered if a.refused)
@@ -273,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         generator = ClaudeGenerator(config.generation, PROMPTS[config.prompt]) if generate else None
         judge = RagasFaithfulness(config.judge) if args.faithfulness else None
         with db.connect() as conn:
-            retriever = build_retriever(config, conn)
+            retriever = build_retriever(config, conn, instrumented=instrument.enabled())
             res = run(
                 config,
                 entries,
