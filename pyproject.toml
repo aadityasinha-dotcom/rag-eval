@@ -17,12 +17,21 @@ dependencies = [
     "langchain-community<0.4",
 ]
 
+[project.optional-dependencies]
+observe = [
+    "llm-metrics[anthropic,openai]>=0.2",
+]
+pg = [
+    "pgserver>=0.1.4",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
     "mypy>=1.11",
     "types-pyyaml>=6.0.12.20260906",
+    "llm-metrics[anthropic,openai]>=0.2",
 ]
 
 [build-system]

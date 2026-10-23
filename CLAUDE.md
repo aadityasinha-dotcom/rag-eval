@@ -94,6 +94,7 @@ cannot answer (to measure refusal / hallucination).
 
 ```bash
 make dev            # postgres + pgvector via docker compose
+make pg-start       # same, embedded (no docker); make pg-stop / pg-status
 make fetch          # download corpus per scripts/sources.txt
 make chunks DOC=    # print a doc's chunks with ids (for writing golden.jsonl)
 make grep Q=        # chunk ids whose text matches a phrase (for finding ids)

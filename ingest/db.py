@@ -11,12 +11,22 @@ from pgvector.psycopg import register_vector
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_SQL = ROOT / "db" / "schema.sql"
-DEFAULT_URL = "postgresql://rag:rag@localhost:5432/rag_eval"
+EMBEDDED_URL_FILE = ROOT / ".pg" / "DATABASE_URL"  # written by `make pg-start`
+DEFAULT_URL = "postgresql://rag:rag@localhost:5432/rag_eval"  # docker compose
 
 
 def database_url() -> str:
+    """DATABASE_URL from the environment or .env, else the embedded server started by
+    `make pg-start` if present, else the docker compose default."""
     load_dotenv(ROOT / ".env")
-    return os.environ.get("DATABASE_URL", DEFAULT_URL)
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return url
+    if EMBEDDED_URL_FILE.is_file():
+        embedded = EMBEDDED_URL_FILE.read_text(encoding="utf-8").strip()
+        if embedded:
+            return embedded
+    return DEFAULT_URL
 
 
 def connect(url: str | None = None) -> psycopg.Connection:

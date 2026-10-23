@@ -56,13 +56,18 @@ for embedding (OpenAI) and, optionally, answer generation (Anthropic).
 uv sync --all-groups          # venv + dependencies
 cp .env.example .env          # add OPENAI_API_KEY (and ANTHROPIC_API_KEY for --generate)
 make fetch                    # download the corpus into corpus/ (sha256-verified)
-make dev                      # postgres 16 + pgvector in docker
+make dev                      # postgres 16 + pgvector in docker...
+make pg-start                 # ...or embedded, no docker or root (data in .pg/)
 make test                     # 76 tests; the Postgres ones skip if the db is down
 make index CONFIG=evals/configs/baseline.yaml
 make eval  CONFIG=evals/configs/baseline.yaml            # retrieval metrics -> results.md
 make eval  CONFIG=evals/configs/baseline.yaml GENERATE=1 # also answers each question
 make eval  CONFIG=evals/configs/baseline.yaml FAITHFULNESS=1 # ...and judges them with Ragas
 ```
+
+`make pg-start` runs a bundled PostgreSQL 16 with pgvector via the `pgserver`
+package and writes its URL to `.pg/DATABASE_URL`, which every command picks up
+when `DATABASE_URL` is unset. `make pg-stop` stops it and keeps the data.
 
 `evals/configs/smoke-hash64.yaml` runs the whole pipeline offline with a
 deterministic hash embedder and no keys. Its numbers are meaningless and are
@@ -122,6 +127,23 @@ db/                init.sql (extension), schema.sql (tables)
 docs/              results.md (machine-appended), tradeoffs.md
 tests/             pytest; fixtures/corpus is a 5-file mini corpus
 ```
+
+## Observability (optional)
+
+Per-query traces, token counts and scores can go to an
+[llm-observe](https://github.com/aadityasinha-dotcom/llm-observe) deployment
+through the `llm-metrics` SDK. It is off unless both are present:
+
+```bash
+uv sync --all-groups --extra observe        # installs the SDK
+echo LLM_METRICS_API_KEY=... >> .env        # and LLM_METRICS_HOST for self-hosting
+```
+
+Each golden query becomes a trace with a `retrieval` observation, a
+`generation` observation from the wrapped Anthropic client (real token
+counts, priced server-side), and the per-query metrics attached as scores.
+The run file records each query's trace id. Without the key or the SDK the
+harness runs identically and sends nothing (CLAUDE.md rule 8).
 
 ## Development
 

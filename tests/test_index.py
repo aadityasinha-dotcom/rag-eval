@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 import psycopg
+import pytest
 
 from evals.config import RunConfig
 from ingest.embed import HashEmbedder
@@ -58,3 +59,16 @@ def test_index_is_incremental_and_tracks_edits(pg: psycopg.Connection, tmp_path:
     assert fourth.chunks_deleted >= 10
     left = pg.execute("SELECT count(*) FROM embeddings WHERE chunk_id LIKE 'doc3#%'").fetchone()[0]
     assert left == 1
+
+
+def test_database_url_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ingest import db
+
+    monkeypatch.setattr(db, "load_dotenv", lambda *_: None)
+    monkeypatch.setattr(db, "EMBEDDED_URL_FILE", tmp_path / "DATABASE_URL")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert db.database_url() == db.DEFAULT_URL  # nothing configured: docker default
+    (tmp_path / "DATABASE_URL").write_text("postgresql://postgres:@/postgres?host=/tmp/sock\n")
+    assert db.database_url() == "postgresql://postgres:@/postgres?host=/tmp/sock"  # embedded
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x@h/d")
+    assert db.database_url() == "postgresql://x@h/d"  # explicit env wins

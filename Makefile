@@ -1,4 +1,4 @@
-.PHONY: dev down fetch index eval lint test chunks grep golden-check golden-freeze search
+.PHONY: dev down pg-start pg-stop pg-status fetch index eval lint test chunks grep golden-check golden-freeze search
 
 UV ?= uv
 
@@ -7,6 +7,15 @@ dev:              ## postgres 16 + pgvector via docker compose
 
 down:
 	docker compose down
+
+pg-start:         ## embedded postgres 16 + pgvector, no docker (data in .pg/)
+	$(UV) run --extra pg python scripts/pg_embedded.py start
+
+pg-stop:
+	$(UV) run --extra pg python scripts/pg_embedded.py stop
+
+pg-status:
+	$(UV) run --extra pg python scripts/pg_embedded.py status
 
 fetch:            ## download corpus per scripts/sources.txt
 	python3 scripts/fetch_corpus.py
