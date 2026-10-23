@@ -41,8 +41,9 @@ def test_index_is_incremental_and_tracks_edits(pg: psycopg.Connection, tmp_path:
         "SELECT embedding FROM embeddings WHERE chunk_id = 'sql-lock#c0' AND model = 'hash64'"
     ).fetchone()
     text = pg.execute("SELECT text FROM chunks WHERE chunk_id = 'sql-lock#c0'").fetchone()[0]
-    assert len(vec) == 64
-    assert [round(float(x), 5) for x in vec] == [round(x, 5) for x in emb.embed([text])[0]]
+    values = vec.to_list() if hasattr(vec, "to_list") else list(vec)  # pgvector returns Vector
+    assert len(values) == 64
+    assert [round(float(x), 5) for x in values] == [round(x, 5) for x in emb.embed([text])[0]]
 
     # edit the tail of doc3: only the last window(s) change text, ids stay
     doc3 = corpus / "doc3.txt"
