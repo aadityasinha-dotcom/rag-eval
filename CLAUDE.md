@@ -25,6 +25,11 @@ hybrid search, reranking, the LangGraph corrective loop, or the API.
 2. **Golden set is written by hand.** Never generate questions with an LLM and
    grade them with an LLM — that measures a circle. Each entry has a question,
    a reference answer, and the ids of chunks that should be retrieved.
+   *Waiver, v1 set (2026-10-26):* the initial `golden.jsonl` was written by
+   Claude at the owner's request, fact-first against verified chunk text,
+   with questions deliberately paraphrased away from the docs' wording.
+   Every results row measured against it inherits that caveat; a hand-written
+   or hand-reviewed v2 should replace it before numbers are quoted externally.
 3. **Baseline before cleverness.** Fixed-size chunks, dense-only retrieval,
    k=5, stuff into prompt. Measure it. Then change one variable at a time.
 4. **Every variant is a config file, not a branch.** `evals/configs/*.yaml`
